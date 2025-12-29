@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: devops-dashboard
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secrets.yaml
+  - database/postgres-pvc.yaml
+  - database/postgres-init-configmap.yaml
+  - database/postgres-deployment.yaml
+  - backend/backend-deployment.yaml
+  - frontend/frontend-deployment.yaml
+  - network-policies/network-policy.yaml
+  - ingress/ingress.yaml
+
+commonLabels:
+  app.kubernetes.io/name: devops-dashboard
+  app.kubernetes.io/managed-by: kustomize
+
+images:
+  - name: devops-dashboard-frontend
+    newName: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/devops-dashboard-frontend
+    newTag: latest
+  - name: devops-dashboard-backend
+    newName: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/devops-dashboard-backend
+    newTag: latest
