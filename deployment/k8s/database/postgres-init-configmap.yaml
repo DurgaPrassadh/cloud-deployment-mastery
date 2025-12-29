@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: devops-dashboard
+data:
+  init.sql: |
+    -- Create extensions
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+    -- Tasks table
+    CREATE TABLE IF NOT EXISTS tasks (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        title VARCHAR(255) NOT NULL,
+        description TEXT,
+        status VARCHAR(50) DEFAULT 'pending',
+        priority VARCHAR(20) DEFAULT 'medium',
+        assigned_to VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Deployments table
+    CREATE TABLE IF NOT EXISTS deployments (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        name VARCHAR(255) NOT NULL,
+        environment VARCHAR(50) NOT NULL,
+        status VARCHAR(50) DEFAULT 'pending',
+        version VARCHAR(50),
+        deployed_by VARCHAR(255),
+        deployed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- System metrics table
+    CREATE TABLE IF NOT EXISTS system_metrics (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        metric_name VARCHAR(100) NOT NULL,
+        metric_value DECIMAL(10, 2) NOT NULL,
+        unit VARCHAR(20),
+        recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Create indexes
+    CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+    CREATE INDEX IF NOT EXISTS idx_deployments_environment ON deployments(environment);
+    CREATE INDEX IF NOT EXISTS idx_deployments_status ON deployments(status);
+    CREATE INDEX IF NOT EXISTS idx_metrics_recorded_at ON system_metrics(recorded_at);
+
+    -- Insert sample data
+    INSERT INTO tasks (title, description, status, priority, assigned_to) VALUES
+    ('Setup CI/CD Pipeline', 'Configure GitHub Actions for automated deployments', 'in_progress', 'high', 'DevOps Team'),
+    ('Configure Monitoring', 'Setup Prometheus and Grafana dashboards', 'pending', 'medium', 'SRE Team'),
+    ('Security Audit', 'Perform security assessment of infrastructure', 'pending', 'high', 'Security Team');
+
+    INSERT INTO deployments (name, environment, status, version, deployed_by) VALUES
+    ('Frontend App', 'production', 'success', 'v1.0.0', 'CI/CD Pipeline'),
+    ('Backend API', 'production', 'success', 'v1.0.0', 'CI/CD Pipeline'),
+    ('Frontend App', 'staging', 'success', 'v1.1.0-beta', 'Developer');
