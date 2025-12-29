@@ -1,0 +1,98 @@
+# Docker Compose - 3-Tier Architecture
+# Run: docker-compose up -d
+
+version: '3.8'
+
+services:
+  # ============================================
+  # DATABASE TIER
+  # ============================================
+  database:
+    image: postgres:15-alpine
+    container_name: devops-database
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: devops_dashboard
+      POSTGRES_USER: devops_admin
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-your_secure_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deployment/database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    networks:
+      - backend-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devops_admin -d devops_dashboard"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ============================================
+  # BACKEND TIER
+  # ============================================
+  backend:
+    build:
+      context: ./deployment/backend
+      dockerfile: Dockerfile
+    container_name: devops-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_HOST: database
+      DB_PORT: 5432
+      DB_NAME: devops_dashboard
+      DB_USER: devops_admin
+      DB_PASSWORD: ${DB_PASSWORD:-your_secure_password}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - backend-network
+      - frontend-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ============================================
+  # FRONTEND TIER
+  # ============================================
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: devops-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      VITE_API_URL: http://backend:3000
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - frontend-network
+    volumes:
+      - ./deployment/docker/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deployment/docker/ssl:/etc/nginx/ssl:ro  # For SSL certs
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  frontend-network:
+    driver: bridge
+  backend-network:
+    driver: bridge
+    internal: true  # No external access - backend & database only
+
+volumes:
+  postgres_data:
+    driver: local
