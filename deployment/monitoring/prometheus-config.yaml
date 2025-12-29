@@ -1,0 +1,46 @@
+# Prometheus Configuration for 3-Tier Application Monitoring
+# File: deployment/monitoring/prometheus-config.yaml
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          # - alertmanager:9093
+
+rule_files:
+  - "/etc/prometheus/alert-rules.yml"
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Backend API metrics
+  - job_name: 'backend-api'
+    static_configs:
+      - targets: ['backend-service:3000']
+    metrics_path: '/api/health/metrics'
+    scrape_interval: 10s
+
+  # Node Exporter for system metrics (install on each EC2)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets:
+        - 'frontend:9100'
+        - 'backend:9100'
+        - 'database:9100'
+
+  # PostgreSQL Exporter
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+
+  # Nginx metrics (frontend)
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['frontend:9113']
