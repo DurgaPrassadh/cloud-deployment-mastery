@@ -1,0 +1,129 @@
+# Default Helm Values
+# File: deployment/helm/values.yaml
+
+# Global settings
+global:
+  environment: production
+  imageRegistry: ""
+
+# Frontend Configuration
+frontend:
+  replicaCount: 2
+  image:
+    repository: your-ecr-account.dkr.ecr.region.amazonaws.com/devops-frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Backend Configuration
+backend:
+  replicaCount: 2
+  image:
+    repository: your-ecr-account.dkr.ecr.region.amazonaws.com/devops-backend
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 3000
+  env:
+    NODE_ENV: production
+    API_PORT: "3000"
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# PostgreSQL Configuration
+postgresql:
+  enabled: true
+  auth:
+    username: devops_user
+    password: ""  # Set via --set or secrets
+    database: devops_dashboard
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: gp2
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+      requests:
+        cpu: 500m
+        memory: 512Mi
+
+# Ingress Configuration
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: yourdomain.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: frontend
+        - path: /api
+          pathType: Prefix
+          service: backend
+  tls:
+    - secretName: devops-dashboard-tls
+      hosts:
+        - yourdomain.com
+
+# Network Policies
+networkPolicy:
+  enabled: true
+
+# Service Account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Pod Security
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+
+# Monitoring
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 30s
