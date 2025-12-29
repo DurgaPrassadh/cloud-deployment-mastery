@@ -1,0 +1,185 @@
+# CI/CD Pipeline for DevOps Dashboard
+# Deploys to AWS EC2 instances
+
+name: Deploy to AWS EC2
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ============================================
+  # BUILD & TEST
+  # ============================================
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linter
+        run: npm run lint --if-present
+
+      - name: Run tests
+        run: npm test --if-present
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: dist/
+          retention-days: 1
+
+  # ============================================
+  # DEPLOY FRONTEND
+  # ============================================
+  deploy-frontend:
+    name: Deploy Frontend
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-build
+          path: dist/
+
+      - name: Deploy to Frontend EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.FRONTEND_EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "dist/*"
+          target: "/var/www/devops-dashboard/"
+          strip_components: 1
+
+      - name: Restart Nginx
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.FRONTEND_EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            sudo nginx -t && sudo systemctl reload nginx
+            echo "Frontend deployed successfully!"
+
+  # ============================================
+  # DEPLOY BACKEND
+  # ============================================
+  deploy-backend:
+    name: Deploy Backend
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Backend EC2 via Bastion
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.FRONTEND_EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "deployment/backend/*"
+          target: "/tmp/backend-deploy/"
+          strip_components: 2
+
+      - name: Copy to Backend & Restart PM2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.FRONTEND_EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            # Copy to Backend EC2 through bastion
+            scp -r -o StrictHostKeyChecking=no /tmp/backend-deploy/* ubuntu@${{ secrets.BACKEND_EC2_PRIVATE_IP }}:/var/www/devops-api/
+            
+            # SSH to backend and restart
+            ssh -o StrictHostKeyChecking=no ubuntu@${{ secrets.BACKEND_EC2_PRIVATE_IP }} << 'EOF'
+              cd /var/www/devops-api
+              npm ci --only=production
+              pm2 restart devops-api || pm2 start ecosystem.config.js --env production
+              pm2 save
+              echo "Backend deployed successfully!"
+            EOF
+            
+            # Cleanup
+            rm -rf /tmp/backend-deploy
+
+  # ============================================
+  # HEALTH CHECK
+  # ============================================
+  health-check:
+    name: Post-Deploy Health Check
+    needs: [deploy-frontend, deploy-backend]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Wait for services to stabilize
+        run: sleep 30
+
+      - name: Check Frontend Health
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" https://${{ secrets.DOMAIN }})
+          if [ "$response" != "200" ]; then
+            echo "Frontend health check failed with status: $response"
+            exit 1
+          fi
+          echo "Frontend is healthy!"
+
+      - name: Check API Health
+        run: |
+          response=$(curl -s https://${{ secrets.DOMAIN }}/api/health)
+          echo "API Response: $response"
+          if echo "$response" | grep -q '"status":"healthy"'; then
+            echo "API is healthy!"
+          else
+            echo "API health check failed"
+            exit 1
+          fi
+
+  # ============================================
+  # NOTIFY
+  # ============================================
+  notify:
+    name: Send Notification
+    needs: [health-check]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Notify on Success
+        if: needs.health-check.result == 'success'
+        run: |
+          echo "✅ Deployment successful!"
+          # Add Slack/Discord webhook notification here if needed
+
+      - name: Notify on Failure
+        if: needs.health-check.result == 'failure'
+        run: |
+          echo "❌ Deployment failed!"
+          # Add alert notification here
